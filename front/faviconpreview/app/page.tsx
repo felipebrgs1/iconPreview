@@ -24,14 +24,8 @@ export default function Home() {
   });
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [previewUrls, setPreviewUrls] = useState<Record<number, string>>({});
-  const [backendIcons, setBackendIcons] = useState<Record<string, string>>({});
-  const [isUploading, setIsUploading] = useState(false);
-  const [appName, setAppName] = useState('My App');
-  const [shortName, setShortName] = useState('App');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const hiddenAnchorRef = useRef<HTMLAnchorElement>(null);
-  const blobUrlRef = useRef('');
 
   function onSelectFile(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files && e.target.files.length > 0) {
@@ -121,73 +115,37 @@ export default function Home() {
     const url = await generateCroppedImage(size);
     if (!url) return;
 
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current);
-    }
-
     const link = document.createElement('a');
     link.download = filename;
     link.href = url;
     link.click();
   }, [generateCroppedImage]);
 
-  const downloadAll = useCallback(async () => {
+  const downloadAllAsZip = useCallback(async () => {
+    // Criar um zip com todos os ícones
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+
     for (const iconSize of ICON_SIZES) {
-      await downloadIcon(iconSize.size, iconSize.filename);
-      // Pequeno delay para não sobrecarregar o browser
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }, [downloadIcon]);
-
-  const uploadToBackend = useCallback(async () => {
-    if (!selectedFile) return;
-
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('icon', selectedFile);
-      formData.append('name', appName);
-      formData.append('short_name', shortName);
-
-      const response = await fetch('http://localhost:3001/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Falha no upload');
+      const url = await generateCroppedImage(iconSize.size);
+      if (url) {
+        // Converter data URL para blob
+        const response = await fetch(url);
+        const blob = await response.blob();
+        zip.file(iconSize.filename, blob);
       }
-
-      const data = await response.json();
-      console.log('Upload successful:', data);
-
-      // Carregar os ícones processados do backend
-      const iconUrls: Record<string, string> = {};
-      for (const iconSize of ICON_SIZES) {
-        iconUrls[iconSize.filename] = `http://localhost:3001/${iconSize.filename}`;
-      }
-      setBackendIcons(iconUrls);
-
-    } catch (error) {
-      console.error('Erro no upload:', error);
-      alert('Erro ao fazer upload da imagem');
-    } finally {
-      setIsUploading(false);
     }
-  }, [selectedFile, appName, shortName]);
 
-  const downloadBackendIcon = useCallback((filename: string) => {
+    // Gerar o zip e fazer download
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
     const link = document.createElement('a');
-    link.href = `http://localhost:3001/${filename}`;
-    link.download = filename;
+    link.href = URL.createObjectURL(zipBlob);
+    link.download = 'favicon-icons.zip';
     link.click();
-  }, []);
-
-  const downloadAllBackend = useCallback(() => {
-    ICON_SIZES.forEach(iconSize => {
-      downloadBackendIcon(iconSize.filename);
-    });
-  }, [downloadBackendIcon]);
+    
+    // Limpar o URL criado
+    setTimeout(() => URL.revokeObjectURL(link.href), 100);
+  }, [generateCroppedImage]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-8">
@@ -218,34 +176,6 @@ export default function Home() {
               />
             </div>
 
-            {/* App Name Fields */}
-            <div className="mb-4 space-y-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Nome do App
-                </label>
-                <input
-                  type="text"
-                  value={appName}
-                  onChange={(e) => setAppName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="My App"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Nome Curto
-                </label>
-                <input
-                  type="text"
-                  value={shortName}
-                  onChange={(e) => setShortName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="App"
-                />
-              </div>
-            </div>
-
             {imgSrc && (
               <div className="space-y-4">
                 <ReactCrop
@@ -273,24 +203,13 @@ export default function Home() {
                     Gerar Previews
                   </button>
                   
-                  {selectedFile && (
-                    <button
-                      onClick={uploadToBackend}
-                      disabled={isUploading}
-                      className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-                    >
-                      <Upload className="w-4 h-4" />
-                      {isUploading ? 'Enviando...' : 'Enviar para Backend'}
-                    </button>
-                  )}
-                  
                   {Object.keys(previewUrls).length > 0 && (
                     <button
-                      onClick={downloadAll}
+                      onClick={downloadAllAsZip}
                       className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
                     >
                       <Download className="w-4 h-4" />
-                      Baixar Todos
+                      Baixar ZIP
                     </button>
                   )}
                 </div>
@@ -359,73 +278,7 @@ export default function Home() {
             )}
           </div>
         </div>
-
-        {/* Backend Icons Section */}
-        {Object.keys(backendIcons).length > 0 && (
-          <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white flex items-center gap-2">
-              <ImageIcon className="w-6 h-6" />
-              Ícones Processados pelo Backend
-            </h2>
-            
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              {ICON_SIZES.map((iconSize) => (
-                <div
-                  key={iconSize.size}
-                  className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 text-center"
-                >
-                  <div className="mb-2">
-                    <img
-                      src={backendIcons[iconSize.filename]}
-                      alt={`Backend ${iconSize.size}x${iconSize.size}`}
-                      className="mx-auto border border-gray-200 dark:border-gray-600 rounded"
-                      style={{
-                        width: iconSize.size > 64 ? 64 : iconSize.size,
-                        height: iconSize.size > 64 ? 64 : iconSize.size,
-                      }}
-                    />
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    {iconSize.size}x{iconSize.size}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                    {iconSize.label}
-                  </p>
-                  <button
-                    onClick={() => downloadBackendIcon(iconSize.filename)}
-                    className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 text-xs font-medium flex items-center gap-1 mx-auto"
-                  >
-                    <Download className="w-3 h-3" />
-                    Baixar
-                  </button>
-                </div>
-              ))}
-            </div>
-            
-            <div className="mt-4 text-center">
-              <button
-                onClick={downloadAllBackend}
-                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 mx-auto"
-              >
-                <Download className="w-4 h-4" />
-                Baixar Todos do Backend
-              </button>
-            </div>
-          </div>
-        )}
       </div>
-      
-      <a
-        ref={hiddenAnchorRef}
-        download
-        style={{
-          position: 'absolute',
-          top: '-200vh',
-          visibility: 'hidden',
-        }}
-      >
-        Hidden download
-      </a>
     </div>
   );
 }
